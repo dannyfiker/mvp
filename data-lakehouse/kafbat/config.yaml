@@ -1,0 +1,9 @@
+kafka:
+  clusters:
+    - name: local
+      bootstrapServers: kafka:9092
+      allowDeleteTopics: true
+      readOnly: false
+      kafkaConnect:
+        - name: connect
+          address: http://connect:8083

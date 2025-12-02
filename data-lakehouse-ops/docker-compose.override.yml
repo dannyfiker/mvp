@@ -1,0 +1,74 @@
+services:
+  apicurio:
+    image: quay.io/apicurio/apicurio-registry-kafkasql:2.5.10.Final
+    container_name: mvp-apicurio
+    healthcheck:
+      test: ["CMD-SHELL","wget -qO- http://localhost:8080/health/ready || exit 1"]
+      interval: 10s
+      timeout: 3s
+      retries: 10
+    depends_on:
+      - kafka
+    environment:
+      QUARKUS_PROFILE: prod
+      KAFKA_BOOTSTRAP_SERVERS: kafka:9092
+      KAFKA_SECURITY_PROTOCOL: PLAINTEXT
+      APPLICATION_SERVER: http://apicurio:8080
+    ports:
+      - "8081:8080"
+    restart: unless-stopped
+
+  superset-db:
+    image: postgres:16.4-alpine
+    container_name: mvp-superset-db
+    environment:
+      POSTGRES_DB: superset
+      POSTGRES_USER: superset
+      POSTGRES_PASSWORD: superset
+    volumes:
+      - superset_db:/var/lib/postgresql/data
+    restart: unless-stopped
+
+  superset:
+    image: apache/superset:3.1.0
+    container_name: mvp-superset
+    depends_on:
+      - superset-db
+    environment:
+      SUPERSET_SECRET_KEY: "change-me-please-very-long"
+      SUPERSET_DATABASE_URI: postgresql+psycopg2://superset:superset@superset-db:5432/superset
+    ports:
+      - "8088:8088"
+    command:
+      [
+        "/bin/bash","-lc",
+        "superset db upgrade && \
+         superset fab create-admin --username admin --firstname Admin --lastname User --email admin@example.com --password admin || true && \
+         superset init && \
+         gunicorn --workers 2 --timeout 120 -b 0.0.0.0:8088 'superset.app:create_app()'"
+      ]
+    restart: unless-stopped
+
+  gov-aggregator:
+    build:
+      context: ../data-lakehouse/apps/gov-aggregator
+      dockerfile: Dockerfile
+    container_name: mvp-gov-aggregator
+    depends_on:
+      - kafka
+      - apicurio
+    environment:
+      bootstrap.servers: kafka:9092
+      registry.url: http://apicurio:8080/apis/registry/v2
+      registry.auto-register: "true"
+      registry.find-latest: "true"
+      topic.mor: mor.tax.payments
+      topic.ecc: ecc.trade.permits
+      topic.motri: motri.transport.permits
+      topic.nbe: nbe.fx.rates
+      topic.moe: moe.education.stats
+      topic.out: gov.aggregates.enriched
+    restart: unless-stopped
+
+volumes:
+  superset_db:

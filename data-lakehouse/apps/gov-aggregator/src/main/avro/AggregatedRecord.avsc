@@ -1,0 +1,12 @@
+{
+  "type": "record",
+  "namespace": "et.gov.lakehouse.govaggregator.avro",
+  "name": "AggregatedRecord",
+  "fields": [
+    {"name":"sourceSystem","type":"string"},
+    {"name":"eventType","type":"string"},
+    {"name":"eventTime","type":{"type":"long","logicalType":"timestamp-millis"}},
+    {"name":"key","type":"string"},
+    {"name":"payload","type":"string"}
+  ]
+}

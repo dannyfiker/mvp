@@ -1,0 +1,12 @@
+{
+  "type": "record",
+  "namespace": "et.gov.lakehouse.govaggregator.avro",
+  "name": "MorTaxPayment",
+  "fields": [
+    {"name":"paymentId","type":"string"},
+    {"name":"tin","type":"string"},
+    {"name":"amount","type":"double"},
+    {"name":"currency","type":"string"},
+    {"name":"paidAt","type":{"type":"long","logicalType":"timestamp-millis"}}
+  ]
+}

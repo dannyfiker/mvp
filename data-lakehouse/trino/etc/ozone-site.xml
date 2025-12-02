@@ -1,0 +1,33 @@
+<?xml version="1.0"?>
+<configuration>
+  <!-- Single-node dev wiring -->
+  <property>
+    <name>ozone.scm.names</name>
+    <value>ozone-scm</value>
+  </property>
+  <property>
+    <name>ozone.scm.client.address</name>
+    <value>ozone-scm:9866</value>
+  </property>
+
+  <property>
+    <name>ozone.om.address</name>
+    <value>ozone-om:9862</value>
+  </property>
+  <property>
+    <name>ozone.om.http-address</name>
+    <value>ozone-om:9874</value>
+  </property>
+
+  <!-- S3 Gateway bind + advertise -->
+  <property>
+    <name>ozone.s3g.http-address</name>
+    <value>0.0.0.0:9878</value>
+  </property>
+
+  <!-- Keep it simple for MVP -->
+  <property>
+    <name>ozone.replication</name>
+    <value>ONE</value>
+  </property>
+</configuration>

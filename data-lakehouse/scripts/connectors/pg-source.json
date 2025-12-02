@@ -1,0 +1,19 @@
+{
+  "name": "pg-source",
+  "config": {
+    "connector.class": "io.debezium.connector.postgresql.PostgresConnector",
+    "tasks.max": "1",
+    "database.hostname": "postgres",
+    "database.port": "5432",
+    "database.user": "debezium",
+    "database.password": "debezium",
+    "database.dbname": "appdb",
+    "topic.prefix": "pg",
+    "schema.include.list": "public",
+    "publication.autocreate.mode": "filtered",
+    "plugin.name": "pgoutput",
+    "slot.name": "debezium_pg",
+    "decimal.handling.mode": "string",
+    "tombstones.on.delete": "false"
+  }
+}

@@ -1,0 +1,11 @@
+{
+  "type": "record",
+  "namespace": "et.gov.lakehouse.govaggregator.avro",
+  "name": "MotriTransportPermit",
+  "fields": [
+    {"name":"permitNo","type":"string"},
+    {"name":"vehiclePlate","type":"string"},
+    {"name":"route","type":"string"},
+    {"name":"validUntil","type":{"type":"long","logicalType":"timestamp-millis"}}
+  ]
+}

@@ -1,0 +1,12 @@
+{
+  "type": "record",
+  "namespace": "et.gov.lakehouse.govaggregator.avro",
+  "name": "EccTradePermit",
+  "fields": [
+    {"name":"permitId","type":"string"},
+    {"name":"companyName","type":"string"},
+    {"name":"commodity","type":"string"},
+    {"name":"valueUsd","type":"double"},
+    {"name":"issuedAt","type":{"type":"long","logicalType":"timestamp-millis"}}
+  ]
+}

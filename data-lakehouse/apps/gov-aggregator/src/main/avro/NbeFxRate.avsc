@@ -1,0 +1,10 @@
+{
+  "type": "record",
+  "namespace": "et.gov.lakehouse.govaggregator.avro",
+  "name": "NbeFxRate",
+  "fields": [
+    {"name":"asOf","type":{"type":"long","logicalType":"timestamp-millis"}},
+    {"name":"pair","type":"string"},
+    {"name":"rate","type":"double"}
+  ]
+}

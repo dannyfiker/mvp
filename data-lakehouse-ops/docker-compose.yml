@@ -1,0 +1,320 @@
+name: data-lakehouse-mvp
+
+services:
+  # ---------------- OZONE 2.0 (SCM + OM + DN + S3G) ----------------
+  ozone-scm:
+    image: apache/ozone:2.0.0
+    container_name: mvp-ozone-scm
+    command: ["ozone","scm"]
+    environment:
+      - OZONE_REPLICATION_FACTOR=1
+    ports: ["9876:9876"]
+    volumes:
+      - ozone_data:/data
+      - ../data-lakehouse/ozone/ozone-site.xml:/opt/ozone/etc/hadoop/ozone-site.xml:ro
+    networks: [dlx]
+
+  ozone-om:
+    image: apache/ozone:2.0.0
+    container_name: mvp-ozone-om
+    depends_on: [ozone-scm]
+    command: ["ozone","om"]
+    environment:
+      - OZONE_REPLICATION_FACTOR=1
+    ports: ["9862:9862"]
+    volumes:
+      - ozone_data:/data
+      - ../data-lakehouse/ozone/ozone-site.xml:/opt/ozone/etc/hadoop/ozone-site.xml:ro
+    networks: [dlx]
+
+  ozone-dn:
+    image: apache/ozone:2.0.0
+    container_name: mvp-ozone-dn
+    depends_on: [ozone-om]
+    command: ["ozone","datanode"]
+    environment:
+      - OZONE_REPLICATION_FACTOR=1
+    volumes:
+      - ozone_data:/data
+      - ../data-lakehouse/ozone/ozone-site.xml:/opt/ozone/etc/hadoop/ozone-site.xml:ro
+    networks: [dlx]
+
+  ozone-s3g:
+    image: apache/ozone:2.0.0
+    container_name: mvp-ozone-s3g
+    depends_on: [ozone-om, ozone-dn]
+    command: ["ozone","s3g"]
+    environment:
+      - OZONE_REPLICATION_FACTOR=1
+      - OZONE_S3G_HTTP_ADDRESS=0.0.0.0:9878
+      - AWS_ACCESS_KEY_ID=admin
+      - AWS_SECRET_ACCESS_KEY=admin123
+    ports: ["9878:9878"]
+    volumes:
+      - ozone_data:/data
+      - ../data-lakehouse/ozone/ozone-site.xml:/opt/ozone/etc/hadoop/ozone-site.xml:ro
+    networks: [dlx]
+
+  init-bucket:
+    image: amazon/aws-cli:2.17.54
+    container_name: mvp-init-bucket
+    depends_on:
+      - ozone-s3g
+    environment:
+      - AWS_ACCESS_KEY_ID=admin
+      - AWS_SECRET_ACCESS_KEY=admin123
+      - AWS_DEFAULT_REGION=us-east-1
+    entrypoint: ["/bin/sh","-lc"]
+    command: >
+      aws --endpoint-url http://ozone-s3g:9878 s3 mb s3://warehouse || true &&
+      aws --endpoint-url http://ozone-s3g:9878 s3 ls
+    networks: [dlx]
+    restart: "no"
+
+  # ---------------- APACHE KAFKA (KRaft, official image) ------------
+  kafka:
+    image: apache/kafka:4.1.0
+    container_name: mvp-kafka
+    ports:
+      - "9092:9092"
+    environment:
+       # --- KRaft single-node config ---
+      KAFKA_NODE_ID: 1
+      KAFKA_PROCESS_ROLES: broker,controller
+      KAFKA_CONTROLLER_QUORUM_VOTERS: 1@mvp-kafka:9093
+
+      # --- Listeners ---
+      # internal listeners (inside container)
+      KAFKA_LISTENERS: PLAINTEXT://:9092,CONTROLLER://:9093
+      # what other containers/host use to reach broker
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://mvp-kafka:9092
+      # which listener is used for controller and inter-broker
+      KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
+      KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
+
+      # --- Log directory (where KRaft metadata + logs live) ---
+      KAFKA_LOG_DIRS: /var/lib/kafka/data
+
+      # Optional but handy in a dev MVP
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: "true"
+
+
+    #  KAFKA_CFG_ADVERTISED_LISTENERS: PLAINTEXT://mvp-kafka:9092
+    
+    # Attach to dlx network and give it an alias "kafka"
+    networks:
+      dlx:
+        aliases:
+          - kafka
+    volumes:
+      # Persist Kafka data (the image uses /var/lib/kafka/data)
+      - kafka_data:/var/lib/kafka/data
+    healthcheck:
+      test: ["CMD-SHELL", "/opt/kafka/bin/kafka-topics.sh --bootstrap-server localhost:9092 --list >/dev/null 2>&1"]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+
+  # ---------------- Kafbat UI (dynamic config) ----------------------
+  kafbat-ui:
+    image: kafbat/kafka-ui:main
+    container_name: mvp-kafbat-ui
+    depends_on:
+      kafka:
+        condition: service_healthy
+    environment:
+      - DYNAMIC_CONFIG_ENABLED=true
+    volumes:
+      - ../data-lakehouse/kafbat/config.yaml:/etc/kafkaui/dynamic_config.yaml:ro
+    ports: ["8080:8080"]
+    networks: [dlx]
+
+  # ---------------- Kafka Connect (Debezium; JSON) ------------------
+  connect:
+    image: debezium/connect:2.7.3.Final
+    container_name: mvp-connect
+    depends_on:
+      kafka:
+        condition: service_healthy
+    environment:
+      - BOOTSTRAP_SERVERS=kafka:9092
+      - GROUP_ID=1
+      - CONFIG_STORAGE_TOPIC=connect_configs
+      - OFFSET_STORAGE_TOPIC=connect_offsets
+      - STATUS_STORAGE_TOPIC=connect_status
+      - KEY_CONVERTER=org.apache.kafka.connect.json.JsonConverter
+      - VALUE_CONVERTER=org.apache.kafka.connect.json.JsonConverter
+      - KEY_CONVERTER_SCHEMAS_ENABLE=false
+      - VALUE_CONVERTER_SCHEMAS_ENABLE=false
+    ports: ["8083:8083"]
+    networks: [dlx]
+
+  # ---------------- Hive Metastore (Apache; Derby) ------------------
+  hive-metastore:
+    image: apache/hive:standalone-metastore-4.1.0
+    container_name: mvp-hive-metastore
+    environment:
+      - SERVICE_NAME=metastore
+    ports: ["9083:9083"]
+    networks: [dlx]
+
+  # ---------------- Iceberg REST Catalog ----------------------------
+  iceberg-rest:
+    image: tabulario/iceberg-rest:1.6.0
+    container_name: mvp-iceberg-rest
+    depends_on:
+      - hive-metastore
+      - ozone-s3g
+    environment:
+      - CATALOG_WAREHOUSE=s3://warehouse/
+      - CATALOG_IO__IMPL=org.apache.iceberg.aws.s3.S3FileIO
+      - AWS_REGION=us-east-1
+      - AWS_ACCESS_KEY_ID=admin
+      - AWS_SECRET_ACCESS_KEY=admin123
+      - S3_ENDPOINT=http://ozone-s3g:9878
+      - S3_PATH_STYLE_ACCESS=true
+    ports:
+      - "8181:8181"
+    networks: [dlx]
+
+  # ---------------- Trino (latest OSS) ------------------------------
+  trino:
+    image: trinodb/trino:477
+    container_name: mvp-trino
+    depends_on:
+      - iceberg-rest
+    volumes:
+      - ../data-lakehouse/trino/etc:/etc/trino:ro
+      - trino_data:/var/trino
+    ports: ["8085:8080"]
+    networks: [dlx]
+
+  # ---------------- Spark + Iceberg (OSS quickstart) ----------------
+  spark:
+    image: tabulario/spark-iceberg:latest
+    container_name: mvp-spark
+    depends_on:
+      - iceberg-rest
+    environment:
+      - SPARK_MODE=client
+    volumes:
+      - ../data-lakehouse/ozone/ozone-site.xml:/opt/spark/conf/ozone-site.xml:ro
+      - ../data-lakehouse/ozone/core-site.xml:/opt/spark/conf/core-site.xml:ro
+      - ../data-lakehouse/scripts/jobs:/opt/jobs
+    networks: [dlx]
+
+  # ---------------- Apicurio Schema Registry (kafkasql) -------------
+  apicurio:
+    image: quay.io/apicurio/apicurio-registry-kafkasql:2.5.10.Final
+    container_name: mvp-apicurio
+    depends_on:
+      kafka:
+        condition: service_healthy
+    environment:
+      QUARKUS_PROFILE: prod
+      REGISTRY_KAFKASQL_BOOTSTRAP_SERVERS: mvp-kafka:9092
+      KAFKA_BOOTSTRAP_SERVERS: mvp-kafka:9092
+      QUARKUS_KAFKA_BOOTSTRAP_SERVERS: mvp-kafka:9092
+      QUARKUS_KAFKA_STREAMS_BOOTSTRAP_SERVERS: mvp-kafka:9092
+      MP_MESSAGING_CONNECTOR_SMALLRYE_KAFKA_BOOTSTRAP_SERVERS: mvp-kafka:9092
+      REGISTRY_STORAGE: kafkasql
+      KAFKA_SECURITY_PROTOCOL: PLAINTEXT
+    ports:
+      - "8081:8080"
+    healthcheck:
+      test: ["CMD-SHELL","wget -qO- http://localhost:8080/health/ready || exit 1"]
+      interval: 10s
+      timeout: 3s
+      retries: 15
+    restart: unless-stopped
+    networks: [dlx]
+
+  # ---------------- Superset ----------------------------------------
+  superset-db:
+    image: postgres:16.4-alpine
+    container_name: mvp-superset-db
+    environment:
+      POSTGRES_DB: superset
+      POSTGRES_USER: superset
+      POSTGRES_PASSWORD: superset
+    volumes:
+      - superset_db:/var/lib/postgresql/data
+    restart: unless-stopped
+    networks: [dlx]
+
+  superset:
+    build:
+      context: ../data-lakehouse/superset        # uses superset/Dockerfile
+    image: mvp-superset:3.1.0-hive
+    container_name: mvp-superset
+    depends_on:
+      - superset-db
+    environment:
+      SUPERSET_SECRET_KEY: "change-me-please-very-long"
+      SUPERSET_DATABASE_URI: postgresql+psycopg2://superset:superset@superset-db:5432/superset
+    volumes:
+      - ./superset/superset_home:/app/superset_home
+      - ./superset/config/superset_config.py:/app/pythonpath/superset_config.py
+    ports:
+      - "8088:8088"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    command:
+      [
+        "/bin/bash","-lc",
+        "superset db upgrade && \
+         superset fab create-admin --username admin --firstname Admin --lastname User --email admin@example.com --password admin || true && \
+         superset init && \
+         gunicorn --workers 2 --timeout 120 -b 0.0.0.0:8088 'superset.app:create_app()'"
+      ]
+    restart: unless-stopped
+    networks: [dlx]
+
+  # ---------------- Gov Aggregator (your app) -----------------------
+  gov-aggregator:
+    build:
+      context: ../data-lakehouse/apps/gov-aggregator
+      dockerfile: Dockerfile
+    container_name: mvp-gov-aggregator
+    depends_on:
+      - kafka
+      - apicurio
+    environment:
+      bootstrap.servers: kafka:9092
+      registry.url: http://apicurio:8080/apis/registry/v2
+      registry.auto-register: "true"
+      registry.find-latest: "true"
+      topic.mor: mor.tax.payments
+      topic.ecc: ecc.trade.permits
+      topic.motri: motri.transport.permits
+      topic.nbe: nbe.fx.rates
+      topic.moe: moe.education.stats
+      topic.out: gov.aggregates.enriched
+    restart: unless-stopped
+    networks: [dlx]
+
+ # ---------------- NGINX reverse proxy (Superset + Phi-3) ----------
+  nginx:
+    image: nginx:1.28
+    container_name: mvp-nginx
+    depends_on:
+      - superset
+    ports:
+      - "80:80"
+    volumes:
+      # nginx config file (see below)
+      - ./nginx/superset.conf:/etc/nginx/conf.d/default.conf:ro
+    extra_hosts:
+      # so nginx can reach uvicorn on the host at http://host.docker.internal:8001
+      - "host.docker.internal:host-gateway"
+    networks:
+      - dlx
+
+networks:
+  dlx: {}
+
+volumes:
+  kafka_data:
+  ozone_data:
+  trino_data:
+  superset_db:

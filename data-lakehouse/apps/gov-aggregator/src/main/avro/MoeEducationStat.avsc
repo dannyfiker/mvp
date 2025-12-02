@@ -1,0 +1,12 @@
+{
+  "type": "record",
+  "namespace": "et.gov.lakehouse.govaggregator.avro",
+  "name": "MoeEducationStat",
+  "fields": [
+    {"name":"schoolId","type":"string"},
+    {"name":"region","type":"string"},
+    {"name":"students","type":"int"},
+    {"name":"teachers","type":"int"},
+    {"name":"reportedAt","type":{"type":"long","logicalType":"timestamp-millis"}}
+  ]
+}
