@@ -130,3 +130,4 @@ This will launch all services: Ozone, Kafka, Hive, Iceberg, Trino, Spark, Supers
 ## License
 
 This repository is provided as an MVP template. Please review and comply with the licenses of all included open-source components.
+Daniel Fikre is the author of this architecture template. 
