@@ -8,17 +8,18 @@ This repository provides a modular, containerized data lakehouse MVP for governm
 
 **Key Components:**
 
-- **Ozone**: S3-compatible object store for data lake storage.
-- **Kafka**: Event streaming backbone.
-- **Debezium Connect**: CDC from PostgreSQL to Kafka.
-- **Apicurio Registry**: Avro schema registry for Kafka topics.
-- **Iceberg**: Table format for lakehouse analytics.
-- **Hive Metastore**: Metadata catalog for Iceberg.
-- **Trino**: SQL query engine for federated analytics.
-- **Spark**: Batch ETL and data transformation.
-- **Superset**: Data visualization and dashboarding.
-- **Nginx**: Reverse proxy for Superset and custom APIs.
-- **Gov Aggregator**: Custom Kafka Streams app for unified event aggregation.
+**Ozone**: S3-compatible object store for data lake storage.
+**Kafka**: Event streaming backbone.
+**Debezium Connect**: CDC from PostgreSQL to Kafka.
+**Apicurio Registry**: Avro schema registry for Kafka topics.
+**Iceberg**: Table format for lakehouse analytics.
+**Hive Metastore**: Metadata catalog for Iceberg.
+**Trino**: SQL query engine for federated analytics.
+**Spark**: Batch ETL and data transformation.
+**Superset**: Data visualization and dashboarding.
+**Nginx**: Reverse proxy for Superset and custom APIs.
+**Gov Aggregator**: Custom Kafka Streams app for unified event aggregation.
+**Apache Ranger**: Centralized security, authorization, and data governance for the lakehouse stack.
 
 ---
 
@@ -41,6 +42,7 @@ data-lakehouse-ops/             # Orchestration, ops, and config
   docker-compose.override.yml   # Override for dev/local
   nginx/                        # Nginx config for Superset/phi3
   superset/                     # Superset config and home
+ ranger/                        # Apache Ranger stack, plugins, and configs
 ```
 
 ---
@@ -71,6 +73,8 @@ docker compose up --build
 
 This will launch all services: Ozone, Kafka, Hive, Iceberg, Trino, Spark, Superset, Apicurio, Gov Aggregator, and Nginx.
 
+Apache Ranger will also be started for security and governance.
+
 ---
 
 ## Data Flow
@@ -82,6 +86,8 @@ This will launch all services: Ozone, Kafka, Hive, Iceberg, Trino, Spark, Supers
 5. **Analytics**: Trino queries Iceberg tables; Superset provides dashboards and visualization.
 6. **Reverse Proxy/API**: Nginx exposes Superset and custom APIs (e.g., phi3 chat).
 
+7. **Security & Governance**: Apache Ranger enforces fine-grained access control, auditing, and policy management across Hive, Trino, and other integrated services.
+
 ---
 
 ## Configuration
@@ -92,6 +98,7 @@ This will launch all services: Ozone, Kafka, Hive, Iceberg, Trino, Spark, Supers
 - **Superset**: Configured via [`superset_config.py`](data-lakehouse-ops/superset/config/superset_config.py).
 - **Trino**: Catalogs and node config in [`trino/etc/`](data-lakehouse/trino/etc/).
 - **Ozone**: S3 gateway and replication in [`ozone-site.xml`](data-lakehouse/ozone/ozone-site.xml).
+ - **Ranger**: Security policies, plugins, and audits configured in [`ranger/`](ranger/), with plugin integration for Hive, Trino, and other services.
 
 ---
 
@@ -102,6 +109,8 @@ This will launch all services: Ozone, Kafka, Hive, Iceberg, Trino, Spark, Supers
 - **Analytics**: Use Trino SQL or Superset dashboards for querying and visualization.
 - **Custom APIs**: Extend Nginx config and add FastAPI/Flask apps as needed.
 
+- **Security Policies**: Define and manage fine-grained access control and audit policies in Ranger for new data sources and services.
+
 ---
 
 ## Security & Production Notes
@@ -111,6 +120,8 @@ This will launch all services: Ozone, Kafka, Hive, Iceberg, Trino, Spark, Supers
   - Use persistent storage for all volumes.
   - Secure network endpoints.
   - Scale out components as needed.
+
+- Integrate Apache Ranger with all supported services for centralized authorization and auditing.
 
 ---
 
@@ -125,9 +136,11 @@ This will launch all services: Ozone, Kafka, Hive, Iceberg, Trino, Spark, Supers
 - [Apicurio Registry](https://www.apicur.io/registry/)
 - [Debezium](https://debezium.io/)
 
+- [Apache Ranger](https://ranger.apache.org/)
+
 ---
 
 ## License
 
 This repository is provided as an MVP template. Please review and comply with the licenses of all included open-source components.
-Daniel Fikre is the author of this architecture template. 
+This architecture template was authored by Daniel Fikre.
