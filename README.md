@@ -58,14 +58,14 @@ data-lakehouse-ops/             # Orchestration, ops, and config
 #### a) Build the gov-aggregator app
 
 ```bash
-cd ~/Lake/mvp/data-lakehouse/apps/gov-aggregator
+cd ~/<<PATH_TO_PROJECT>>/mvp/data-lakehouse/apps/gov-aggregator
 mvn -DskipTests package
 ```
 
 #### b) Start the full stack
 
 ```bash
-cd ~/Lake/mvp/data-lakehouse-ops
+cd ~/<<PATH_TO_PROJECT>>/mvp/data-lakehouse-ops
 docker compose up --build
 ```
 
