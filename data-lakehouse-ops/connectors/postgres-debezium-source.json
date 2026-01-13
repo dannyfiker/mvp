@@ -1,0 +1,31 @@
+{
+  "name": "pg-source-debezium",
+  "config": {
+    "connector.class": "io.debezium.connector.postgresql.PostgresConnector",
+    "tasks.max": "1",
+
+    "database.hostname": "host.docker.internal",
+    "database.port": "5435",
+    "database.user": "debezium",
+    "database.password": "debezium_pw",
+    "database.dbname": "test_ministry",
+
+    "topic.prefix": "pg1",
+
+    "plugin.name": "pgoutput",
+    "slot.name": "debezium_pg1",
+    "publication.autocreate.mode": "filtered",
+
+    "schema.include.list": "nbe_mock",
+    "table.include.list": "nbe_mock.accounts,nbe_mock.transactions,nbe_mock.customers,nbe_mock.branches,nbe_mock.banks",
+
+    "snapshot.mode": "initial",
+
+    "tombstones.on.delete": "false",
+
+    "key.converter": "org.apache.kafka.connect.json.JsonConverter",
+    "key.converter.schemas.enable": "false",
+    "value.converter": "org.apache.kafka.connect.json.JsonConverter",
+    "value.converter.schemas.enable": "false"
+  }
+}
