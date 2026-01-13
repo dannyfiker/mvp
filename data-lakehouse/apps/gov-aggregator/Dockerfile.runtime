@@ -1,12 +1,11 @@
-FROM maven:3.9.9-eclipse-temurin-17 AS build
-WORKDIR /app
-COPY pom.xml .
-COPY src ./src
-RUN mvn -q -e -B -DskipTests package
-
 FROM eclipse-temurin:17-jre-alpine
 WORKDIR /app
-COPY --from=build /app/target/gov-aggregator-*-SNAPSHOT.jar /app/app.jar
+
+# This Dockerfile avoids Maven downloads inside Docker.
+# Build the jar on the host first: mvn -DskipTests package
+COPY target/gov-aggregator-*-SNAPSHOT.jar /app/app.jar
+
 ENV JAVA_OPTS="-Xms256m -Xmx512m"
 ENV MAIN_CLASS="et.gov.lakehouse.govaggregator.core.App"
+
 ENTRYPOINT ["sh","-c","exec ${JAVA_HOME:-/opt/java/openjdk}/bin/java $JAVA_OPTS -cp /app/app.jar $MAIN_CLASS"]

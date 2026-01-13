@@ -14,6 +14,7 @@ import org.apache.kafka.streams.*;
 import org.apache.kafka.streams.kstream.*;
 
 import java.util.Properties;
+import java.util.concurrent.CountDownLatch;
 
 public final class App {
 
@@ -79,7 +80,18 @@ public final class App {
         // ---- Bootstrap Streams ----
         Topology topology = b.build();
         KafkaStreams streams = new KafkaStreams(topology, p);
-        Runtime.getRuntime().addShutdownHook(new Thread(streams::close));
-        streams.start();
+
+                CountDownLatch latch = new CountDownLatch(1);
+                Runtime.getRuntime().addShutdownHook(new Thread(() -> {
+                        streams.close();
+                        latch.countDown();
+                }));
+
+                streams.start();
+                try {
+                        latch.await();
+                } catch (InterruptedException e) {
+                        Thread.currentThread().interrupt();
+                }
     }
 }

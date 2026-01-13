@@ -52,22 +52,21 @@ services:
   gov-aggregator:
     build:
       context: ../data-lakehouse/apps/gov-aggregator
-      dockerfile: Dockerfile
+      dockerfile: Dockerfile.runtime
     container_name: mvp-gov-aggregator
     depends_on:
       - kafka
       - apicurio
     environment:
-      bootstrap.servers: kafka:9092
-      registry.url: http://apicurio:8080/apis/registry/v2
-      registry.auto-register: "true"
-      registry.find-latest: "true"
-      topic.mor: mor.tax.payments
-      topic.ecc: ecc.trade.permits
-      topic.motri: motri.transport.permits
-      topic.nbe: nbe.fx.rates
-      topic.moe: moe.education.stats
-      topic.out: gov.aggregates.enriched
+      BOOTSTRAP_SERVERS: kafka:9092
+      APICURIO_URL: http://apicurio:8080/apis/registry/v2
+      APICURIO_GROUP_ID: gov-aggregator
+      TOPIC_MOR: mor.tax.payments
+      TOPIC_ECC: ecc.trade.permits
+      TOPIC_MOTRI: motri.transport.permits
+      TOPIC_NBE: nbe.fx.rates
+      TOPIC_MOE: moe.education.stats
+      TOPIC_OUT: gov.aggregates.enriched
     restart: unless-stopped
 
 volumes:

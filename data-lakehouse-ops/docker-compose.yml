@@ -282,22 +282,48 @@ services:
   gov-aggregator:
     build:
       context: ../data-lakehouse/apps/gov-aggregator
-      dockerfile: Dockerfile
+      dockerfile: Dockerfile.runtime
     container_name: mvp-gov-aggregator
     depends_on:
       - kafka
       - apicurio
     environment:
-      bootstrap.servers: kafka:9092
-      registry.url: http://apicurio:8080/apis/registry/v2
-      registry.auto-register: "true"
-      registry.find-latest: "true"
-      topic.mor: mor.tax.payments
-      topic.ecc: ecc.trade.permits
-      topic.motri: motri.transport.permits
-      topic.nbe: nbe.fx.rates
-      topic.moe: moe.education.stats
-      topic.out: gov.aggregates.enriched
+      BOOTSTRAP_SERVERS: kafka:9092
+      APICURIO_URL: http://apicurio:8080/apis/registry/v2
+      APICURIO_GROUP_ID: gov-aggregator
+      TOPIC_MOR: mor.tax.payments
+      TOPIC_ECC: ecc.trade.permits
+      TOPIC_MOTRI: motri.transport.permits
+      TOPIC_NBE: nbe.fx.rates
+      TOPIC_MOE: moe.education.stats
+      TOPIC_OUT: gov.aggregates.enriched
+    restart: unless-stopped
+    networks: [dlx]
+
+  # ---------------- Bronze (Debezium) -> Silver (JSON) --------------
+  debezium-to-silver:
+    build:
+      context: ../data-lakehouse/apps/gov-aggregator
+      dockerfile: Dockerfile.runtime
+    container_name: mvp-debezium-to-silver
+    depends_on:
+      - kafka
+      - connect
+    environment:
+      MAIN_CLASS: et.gov.lakehouse.govaggregator.core.DebeziumToSilverApp
+      BOOTSTRAP_SERVERS: kafka:9092
+      APPLICATION_ID: debezium-to-silver
+
+      # Debezium topics produced by your connector (topic.prefix=pg1)
+      BRONZE_TOPICS: pg1.nbe_mock.accounts,pg1.nbe_mock.transactions,pg1.nbe_mock.customers,pg1.nbe_mock.branches,pg1.nbe_mock.banks
+
+      # Output topic naming: silver.<input-topic> by default
+      SILVER_TOPIC_PREFIX: silver.
+      # Naming style:
+      # - full (default): silver.<input-topic> (optionally with SILVER_STRIP_PREFIX)
+      # - last-segment: silver.<table> (e.g. pg1.nbe_mock.accounts -> silver.accounts)
+      SILVER_NAME_STYLE: last-segment
+      SILVER_STRIP_PREFIX: ""
     restart: unless-stopped
     networks: [dlx]
 
