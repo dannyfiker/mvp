@@ -1,8 +1,9 @@
 package et.gov.lakehouse.govaggregator.core;
 
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
+import et.gov.lakehouse.govaggregator.common.SerdeFactory;
+import org.apache.avro.generic.GenericRecord;
 import org.apache.kafka.clients.consumer.ConsumerConfig;
+import org.apache.kafka.common.serialization.Serde;
 import org.apache.kafka.common.serialization.Serdes;
 import org.apache.kafka.streams.KafkaStreams;
 import org.apache.kafka.streams.StreamsBuilder;
@@ -20,18 +21,14 @@ import java.util.concurrent.CountDownLatch;
 import java.util.stream.Collectors;
 
 /**
- * Minimal "bronze -> silver" pipeline for Debezium JSON topics.
+ * Minimal "bronze -> silver" pipeline for Debezium topics serialized with AvroConverter.
  *
- * Input: Kafka Connect JsonConverter with schemas disabled (your connect config), producing JSON like:
- *  {"before":..., "after":{...}, "op":"c|u|d|r", ...}
- * or wrapped as {"payload":{...}}.
+ * Input: Debezium envelope (Avro), fields like: before, after, op, ts_ms, source...
  *
- * Output: a new topic per input, containing only the "after" JSON object (as a JSON string).
+ * Output: a new topic per input, containing only the "after" record (Avro).
  * Deletes (op=d) are dropped by default because "after" is null.
  */
 public final class DebeziumToSilverApp {
-
-    private static final ObjectMapper MAPPER = new ObjectMapper();
 
     private static String sysOrEnv(String sysKey, String envKey, String defVal) {
         String v = System.getProperty(sysKey);
@@ -66,18 +63,16 @@ public final class DebeziumToSilverApp {
         return silverPrefix + t;
     }
 
-    private static String extractAfterJson(String rawJson) {
-        if (rawJson == null || rawJson.isBlank()) return null;
-        try {
-            JsonNode root = MAPPER.readTree(rawJson);
-            JsonNode payload = root.has("payload") ? root.get("payload") : root;
-            JsonNode after = payload.get("after");
-            if (after == null || after.isNull()) return null;
-            return MAPPER.writeValueAsString(after);
-        } catch (Exception e) {
-            // If parsing fails, drop the record (keeps the pipeline resilient)
-            return null;
-        }
+    private static GenericRecord extractAfter(GenericRecord root) {
+        if (root == null) return null;
+
+        // Debezium envelope is typically the root record (before/after/op/ts_ms/...)
+        // but some pipelines may wrap it as payload.
+        Object maybePayload = root.get("payload");
+        GenericRecord envelope = (maybePayload instanceof GenericRecord gr) ? gr : root;
+
+        Object after = envelope.get("after");
+        return (after instanceof GenericRecord gr) ? gr : null;
     }
 
     public static void main(String[] args) {
@@ -103,15 +98,21 @@ public final class DebeziumToSilverApp {
         String stripPrefix = sysOrEnv("silver.strip.prefix", "SILVER_STRIP_PREFIX", "");
         String nameStyle = sysOrEnv("silver.name.style", "SILVER_NAME_STYLE", "full");
 
+        String registryUrl = sysOrEnv("apicurio.registry.url", "APICURIO_URL", "http://apicurio:8080/apis/registry/v2");
+        String registryGroupId = sysOrEnv("apicurio.registry.group", "APICURIO_GROUP_ID", "debezium");
+
+        Serde<byte[]> keySerde = Serdes.ByteArray();
+        Serde<GenericRecord> valueSerde = SerdeFactory.avroSerde(registryUrl, registryGroupId);
+
         StreamsBuilder b = new StreamsBuilder();
 
         for (String inputTopic : bronzeTopics) {
             String outputTopic = silverTopicFor(inputTopic, silverPrefix, stripPrefix, nameStyle);
 
-            KStream<String, String> src = b.stream(inputTopic, Consumed.with(Serdes.String(), Serdes.String()));
-            src.mapValues(DebeziumToSilverApp::extractAfterJson)
-               .filter((k, v) -> v != null)
-               .to(outputTopic, Produced.with(Serdes.String(), Serdes.String()));
+                KStream<byte[], GenericRecord> src = b.stream(inputTopic, Consumed.with(keySerde, valueSerde));
+                src.mapValues(DebeziumToSilverApp::extractAfter)
+                    .filter((k, v) -> v != null)
+                    .to(outputTopic, Produced.with(keySerde, valueSerde));
         }
 
         Topology topology = b.build();

@@ -14,7 +14,8 @@
 
     "plugin.name": "pgoutput",
     "slot.name": "debezium_pg1",
-    "publication.autocreate.mode": "filtered",
+    "publication.name": "dbz_publication",
+    "publication.autocreate.mode": "disabled",
 
     "schema.include.list": "nbe_mock",
     "table.include.list": "nbe_mock.accounts,nbe_mock.transactions,nbe_mock.customers,nbe_mock.branches,nbe_mock.banks",
@@ -25,7 +26,11 @@
 
     "key.converter": "org.apache.kafka.connect.json.JsonConverter",
     "key.converter.schemas.enable": "false",
-    "value.converter": "org.apache.kafka.connect.json.JsonConverter",
-    "value.converter.schemas.enable": "false"
+
+    "value.converter": "io.apicurio.registry.utils.converter.AvroConverter",
+    "value.converter.apicurio.registry.url": "http://apicurio:8080/apis/registry/v2",
+    "value.converter.apicurio.registry.auto-register": "true",
+    "value.converter.apicurio.registry.find-latest": "true",
+    "value.converter.apicurio.registry.artifact.group-id": "pg1"
   }
 }

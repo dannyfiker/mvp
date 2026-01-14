@@ -7,11 +7,12 @@ services:
     container_name: mvp-ozone-scm
     command: ["ozone","scm"]
     environment:
+      - OZONE_METADATA_DIRS=/data/ozone-meta/scm
       - OZONE_REPLICATION_FACTOR=1
     ports: ["9876:9876"]
     volumes:
       - ozone_data:/data
-      - ../data-lakehouse/ozone/ozone-site.xml:/opt/ozone/etc/hadoop/ozone-site.xml:ro
+      - ../data-lakehouse/ozone/ozone-site.scm.xml:/opt/ozone/etc/hadoop/ozone-site.xml:ro
     networks: [dlx]
 
   ozone-om:
@@ -20,11 +21,12 @@ services:
     depends_on: [ozone-scm]
     command: ["ozone","om"]
     environment:
+      - OZONE_METADATA_DIRS=/data/ozone-meta/om
       - OZONE_REPLICATION_FACTOR=1
     ports: ["9862:9862"]
     volumes:
       - ozone_data:/data
-      - ../data-lakehouse/ozone/ozone-site.xml:/opt/ozone/etc/hadoop/ozone-site.xml:ro
+      - ../data-lakehouse/ozone/ozone-site.om.xml:/opt/ozone/etc/hadoop/ozone-site.xml:ro
     networks: [dlx]
 
   ozone-dn:
@@ -33,10 +35,11 @@ services:
     depends_on: [ozone-om]
     command: ["ozone","datanode"]
     environment:
+      - OZONE_METADATA_DIRS=/data/ozone-meta/dn
       - OZONE_REPLICATION_FACTOR=1
     volumes:
       - ozone_data:/data
-      - ../data-lakehouse/ozone/ozone-site.xml:/opt/ozone/etc/hadoop/ozone-site.xml:ro
+      - ../data-lakehouse/ozone/ozone-site.dn.xml:/opt/ozone/etc/hadoop/ozone-site.xml:ro
     networks: [dlx]
 
   ozone-s3g:
@@ -45,6 +48,7 @@ services:
     depends_on: [ozone-om, ozone-dn]
     command: ["ozone","s3g"]
     environment:
+      - OZONE_METADATA_DIRS=/data/ozone-meta/s3g
       - OZONE_REPLICATION_FACTOR=1
       - OZONE_S3G_HTTP_ADDRESS=0.0.0.0:9878
       - AWS_ACCESS_KEY_ID=admin
@@ -52,7 +56,7 @@ services:
     ports: ["9878:9878"]
     volumes:
       - ozone_data:/data
-      - ../data-lakehouse/ozone/ozone-site.xml:/opt/ozone/etc/hadoop/ozone-site.xml:ro
+      - ../data-lakehouse/ozone/ozone-site.s3g.xml:/opt/ozone/etc/hadoop/ozone-site.xml:ro
     networks: [dlx]
 
   init-bucket:
@@ -65,9 +69,15 @@ services:
       - AWS_SECRET_ACCESS_KEY=admin123
       - AWS_DEFAULT_REGION=us-east-1
     entrypoint: ["/bin/sh","-lc"]
-    command: >
-      aws --endpoint-url http://ozone-s3g:9878 s3 mb s3://warehouse || true &&
-      aws --endpoint-url http://ozone-s3g:9878 s3 ls
+    command:
+      - |
+        set -e
+        until aws --endpoint-url http://ozone-s3g:9878 s3 ls >/dev/null 2>&1; do
+          echo "waiting for ozone-s3g..." >&2
+          sleep 2
+        done
+        aws --endpoint-url http://ozone-s3g:9878 s3 mb s3://warehouse || true
+        aws --endpoint-url http://ozone-s3g:9878 s3 ls
     networks: [dlx]
     restart: "no"
 
@@ -148,13 +158,20 @@ services:
       - CONFIG_STORAGE_TOPIC=connect_configs
       - OFFSET_STORAGE_TOPIC=connect_offsets
       - STATUS_STORAGE_TOPIC=connect_status
+      # Default converters for the Connect worker. Individual connectors can override.
+      # For this MVP we use value-only Avro: keys are schemaless JSON, values are Avro.
       - KEY_CONVERTER=org.apache.kafka.connect.json.JsonConverter
-      - VALUE_CONVERTER=org.apache.kafka.connect.json.JsonConverter
       - KEY_CONVERTER_SCHEMAS_ENABLE=false
-      - VALUE_CONVERTER_SCHEMAS_ENABLE=false
+      - VALUE_CONVERTER=io.apicurio.registry.utils.converter.AvroConverter
+      - VALUE_CONVERTER_APICURIO_REGISTRY_URL=http://apicurio:8080/apis/registry/v2
+      - VALUE_CONVERTER_APICURIO_REGISTRY_AUTO_REGISTER=true
+      - VALUE_CONVERTER_APICURIO_REGISTRY_FIND_LATEST=true
     ports: ["8083:8083"]
     extra_hosts:
       - "host.docker.internal:host-gateway"
+    volumes:
+      # Provide AvroConverter implementation on Connect plugin.path (/kafka/connect)
+      - ../data-lakehouse/apps/gov-aggregator/target/gov-aggregator-0.1.0-SNAPSHOT.jar:/kafka/connect/apicurio-avro-converter/gov-aggregator-0.1.0-SNAPSHOT.jar:ro
     networks: [dlx]
 
   # ---------------- Hive Metastore (Apache; Derby) ------------------
@@ -179,11 +196,26 @@ services:
       - AWS_REGION=us-east-1
       - AWS_ACCESS_KEY_ID=admin
       - AWS_SECRET_ACCESS_KEY=admin123
+
+      # Iceberg catalog/FileIO properties for S3-compatible stores (Ozone S3G).
+      # This image maps env vars starting with CATALOG_ into catalog properties using:
+      # - '_' => '.'
+      # - '__' => '-'
+      - CATALOG_S3_ENDPOINT=http://ozone-s3g:9878
+      - CATALOG_S3_PATH__STYLE__ACCESS=true
+      - CATALOG_S3_REGION=us-east-1
+      - CATALOG_S3_ACCESS__KEY__ID=admin
+      - CATALOG_S3_SECRET__ACCESS__KEY=admin123
+
+      # Retain older variables for compatibility (harmless if ignored)
       - S3_ENDPOINT=http://ozone-s3g:9878
       - S3_PATH_STYLE_ACCESS=true
     ports:
       - "8181:8181"
-    networks: [dlx]
+    networks:
+      dlx:
+        aliases:
+          - rest
 
   # ---------------- Trino (latest OSS) ------------------------------
   trino:
@@ -193,7 +225,7 @@ services:
       - iceberg-rest
     volumes:
       - ../data-lakehouse/trino/etc:/etc/trino:ro
-      - trino_data:/var/trino
+      - trino_data:/data/trino
     ports: ["8085:8080"]
     networks: [dlx]
 
@@ -309,10 +341,16 @@ services:
     depends_on:
       - kafka
       - connect
+      - apicurio
     environment:
       MAIN_CLASS: et.gov.lakehouse.govaggregator.core.DebeziumToSilverApp
       BOOTSTRAP_SERVERS: kafka:9092
-      APPLICATION_ID: debezium-to-silver
+      # Bump app id to reprocess and populate the canonical silver.<table> topics.
+      APPLICATION_ID: debezium-to-silver-v2
+
+      # Apicurio Registry (Avro)
+      APICURIO_URL: http://apicurio:8080/apis/registry/v2
+      APICURIO_GROUP_ID: pg1
 
       # Debezium topics produced by your connector (topic.prefix=pg1)
       BRONZE_TOPICS: pg1.nbe_mock.accounts,pg1.nbe_mock.transactions,pg1.nbe_mock.customers,pg1.nbe_mock.branches,pg1.nbe_mock.banks
@@ -324,6 +362,41 @@ services:
       # - last-segment: silver.<table> (e.g. pg1.nbe_mock.accounts -> silver.accounts)
       SILVER_NAME_STYLE: last-segment
       SILVER_STRIP_PREFIX: ""
+    restart: unless-stopped
+    networks: [dlx]
+
+  # ---------------- Silver (Kafka) -> Iceberg (tables) --------------
+  silver-to-iceberg:
+    image: tabulario/spark-iceberg:latest
+    container_name: mvp-silver-to-iceberg
+    depends_on:
+      - kafka
+      - iceberg-rest
+      - ozone-s3g
+    environment:
+      - SPARK_MODE=client
+      - KAFKA_BOOTSTRAP_SERVERS=kafka:9092
+      # Only consume the canonical silver topics (exclude legacy silver.nbe_mock.*)
+      - TOPIC_PATTERN=silver\.(accounts|banks|branches|customers|transactions)
+      - ICEBERG_REST_URI=http://iceberg-rest:8181
+      - WAREHOUSE_SILVER_LOCATION=s3://warehouse/silver/
+      - CHECKPOINT_LOCATION=/tmp/checkpoints/kafka_silver_to_iceberg_v2
+      - STARTING_OFFSETS=earliest
+      - S3_ENDPOINT=http://ozone-s3g:9878
+      - S3_PATH_STYLE_ACCESS=true
+      - AWS_ACCESS_KEY_ID=admin
+      - AWS_SECRET_ACCESS_KEY=admin123
+      - AWS_REGION=us-east-1
+    volumes:
+      - ../data-lakehouse/ozone/ozone-site.xml:/opt/spark/conf/ozone-site.xml:ro
+      - ../data-lakehouse/ozone/core-site.xml:/opt/spark/conf/core-site.xml:ro
+      - ../data-lakehouse/scripts/jobs:/opt/jobs
+      # Provide Kafka connector deps without using Ivy/--packages
+      - ../data-lakehouse/spark-jars:/opt/extra-jars:ro
+    # NOTE: /opt/spark/entrypoint.sh only runs `eval "$1"` (first arg), so pass a single string.
+    # The base image does not include the Structured Streaming Kafka connector.
+    command:
+      - "spark-submit --jars /opt/extra-jars/spark-sql-kafka-0-10_2.12-3.5.5.jar,/opt/extra-jars/spark-token-provider-kafka-0-10_2.12-3.5.5.jar,/opt/extra-jars/kafka-clients-3.4.1.jar,/opt/extra-jars/commons-pool2-2.11.1.jar /opt/jobs/kafka_silver_to_iceberg.py"
     restart: unless-stopped
     networks: [dlx]
 

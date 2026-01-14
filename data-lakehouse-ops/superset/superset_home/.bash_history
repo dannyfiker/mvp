@@ -8,3 +8,6 @@ curl http://http://host.docker.internal:8001/chat
 curl http://host.docker.internal:8001/chat
 exit
 exit
+curl http://ranger:6080
+curl https://google.com
+exit

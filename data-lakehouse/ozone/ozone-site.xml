@@ -66,4 +66,11 @@
     <name>ozone.metrics.prometheus.port</name>
     <value>9877</value>
   </property>
+
+  <!-- MVP default: keep authZ simple; Ranger Ozone authorizer is not on the classpath in apache/ozone:2.0.0 -->
+  <property>
+    <name>ozone.acl.enabled</name>
+    <value>false</value>
+  </property>
+
 </configuration>

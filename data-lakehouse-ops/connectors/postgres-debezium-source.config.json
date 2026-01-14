@@ -24,6 +24,10 @@
 
   "key.converter": "org.apache.kafka.connect.json.JsonConverter",
   "key.converter.schemas.enable": "false",
-  "value.converter": "org.apache.kafka.connect.json.JsonConverter",
-  "value.converter.schemas.enable": "false"
+
+  "value.converter": "io.apicurio.registry.utils.converter.AvroConverter",
+  "value.converter.apicurio.registry.url": "http://apicurio:8080/apis/registry/v2",
+  "value.converter.apicurio.registry.auto-register": "true",
+  "value.converter.apicurio.registry.find-latest": "true",
+  "value.converter.apicurio.registry.artifact.group-id": "pg1"
 }

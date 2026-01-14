@@ -1,0 +1,108 @@
+<?xml version="1.0"?>
+<configuration>
+  <!-- Single-node dev wiring -->
+  <property>
+    <name>ozone.scm.names</name>
+    <value>ozone-scm</value>
+  </property>
+
+  <property>
+    <name>ozone.scm.client.address</name>
+    <value>ozone-scm:9866</value>
+  </property>
+
+  <property>
+    <name>ozone.om.address</name>
+    <value>ozone-om:9862</value>
+  </property>
+
+  <property>
+    <name>ozone.om.http-address</name>
+    <value>ozone-om:9874</value>
+  </property>
+
+  <!-- Disable OM Ratis for single-node Docker (workaround for HDDS-10909) -->
+  <property>
+    <name>ozone.om.ratis.enable</name>
+    <value>false</value>
+  </property>
+
+  <!-- S3 Gateway bind + advertise -->
+  <property>
+    <name>ozone.s3g.http-address</name>
+    <value>0.0.0.0:9878</value>
+  </property>
+
+  <!-- Service-local metadata location (avoid shared Ratis dirs across services) -->
+  <property>
+    <name>ozone.metadata.dirs</name>
+    <value>/data/ozone-meta-dn</value>
+  </property>
+
+  <!-- DataNode ID / container layout -->
+  <property>
+    <name>ozone.scm.datanode.id.dir</name>
+    <value>/data/hdds</value>
+  </property>
+
+  <!-- Keep it simple for MVP -->
+  <property>
+    <name>ozone.replication</name>
+    <value>1</value>
+  </property>
+
+  <property>
+    <name>ozone.replication.type</name>
+    <value>RATIS</value>
+  </property>
+
+  <!-- Ensure container allocation works on a single DataNode -->
+  <property>
+    <name>hdds.replication</name>
+    <value>RATIS/ONE</value>
+  </property>
+
+  <property>
+    <name>hdds.replication.type</name>
+    <value>RATIS</value>
+  </property>
+
+  <property>
+    <name>hdds.replication.factor</name>
+    <value>ONE</value>
+  </property>
+
+  <!-- SCM-scoped defaults (some code paths use these instead of hdds.replication.*) -->
+  <property>
+    <name>hdds.scm.replication.type</name>
+    <value>RATIS</value>
+  </property>
+
+  <property>
+    <name>hdds.scm.replication.factor</name>
+    <value>ONE</value>
+  </property>
+
+  <!-- Prometheus metrics -->
+  <property>
+    <name>ozone.metrics.reporter.enable</name>
+    <value>true</value>
+  </property>
+
+  <property>
+    <name>ozone.metrics.reporter.prometheus.httpserver</name>
+    <value>true</value>
+  </property>
+
+  <property>
+    <name>ozone.metrics.prometheus.port</name>
+    <value>9877</value>
+  </property>
+
+  <!-- MVP default: keep authZ simple; Ranger Ozone authorizer is not on the classpath in apache/ozone:2.0.0 -->
+  <property>
+    <name>ozone.acl.enabled</name>
+    <value>false</value>
+  </property>
+
+</configuration>
