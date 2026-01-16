@@ -10,10 +10,11 @@
     <maven.compiler.target>17</maven.compiler.target>
     <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
     <kafka.streams.version>3.7.1</kafka.streams.version>
-    <avro.version>1.11.3</avro.version>
-    <apicurio.serdes.version>3.0.5.Final</apicurio.serdes.version>
+    <avro.version>1.11.4</avro.version>
+    <apicurio.serdes.version>2.5.11.Final</apicurio.serdes.version>
     <slf4j.version>1.7.36</slf4j.version>
     <jackson.version>2.17.2</jackson.version>
+    <lz4-java.version>1.10.1</lz4-java.version>
   </properties>
 
   <dependencyManagement>
@@ -32,6 +33,12 @@
       <groupId>org.apache.kafka</groupId>
       <artifactId>kafka-streams</artifactId>
       <version>${kafka.streams.version}</version>
+      <exclusions>
+        <exclusion>
+          <groupId>org.lz4</groupId>
+          <artifactId>lz4-java</artifactId>
+        </exclusion>
+      </exclusions>
     </dependency>
     <dependency>
       <groupId>io.apicurio</groupId>
@@ -42,6 +49,12 @@
       <groupId>org.apache.avro</groupId>
       <artifactId>avro</artifactId>
       <version>${avro.version}</version>
+    </dependency>
+
+    <dependency>
+      <groupId>at.yawk.lz4</groupId>
+      <artifactId>lz4-java</artifactId>
+      <version>${lz4-java.version}</version>
     </dependency>
     <dependency>
       <groupId>org.slf4j</groupId>
@@ -55,18 +68,8 @@
     </dependency>
     <dependency>
       <groupId>io.apicurio</groupId>
-      <artifactId>apicurio-registry-serdes-avro-serde</artifactId>
-      <version>2.5.11.Final</version>
-    </dependency>
-    <dependency>
-      <groupId>io.apicurio</groupId>
       <artifactId>apicurio-registry-utils-converter</artifactId>
-      <version>2.5.11.Final</version>
-    </dependency>
-    <dependency>
-      <groupId>org.apache.avro</groupId>
-      <artifactId>avro</artifactId>
-      <version>1.11.3</version>
+      <version>${apicurio.serdes.version}</version>
     </dependency>
   </dependencies>
   <build>
