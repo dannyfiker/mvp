@@ -50,6 +50,19 @@ def artifact_to_relpath(artifact_id: str) -> Path:
     Fallback:
       artifacts/<artifact_id>.avsc
     """
+    # For this MVP, we route Oracle table topics to `raw-<TABLE>`.
+    # When using Apicurio's Avro converter, artifact IDs will be `<topic>-value`.
+    # Map these to a stable per-table schema file path.
+    m_raw = re.match(r"^raw-(?P<table>.+)-(?P<kind>key|value)$", artifact_id)
+    if m_raw:
+        table = safe_path_segment(m_raw.group("table"))
+        kind = safe_path_segment(m_raw.group("kind"))
+
+        # Oracle tables in this connector are under schema ESW.
+        if kind == "value":
+            return Path("ESW") / f"{table}.avsc"
+        return Path("ESW") / f"{table}.key.avsc"
+
     m = re.match(r"^(?P<prefix>[^.]+)\.(?P<schema>[^.]+)\.(?P<table>[^-]+)-(?P<kind>key|value)$", artifact_id)
     if m:
         schema = safe_path_segment(m.group("schema"))

@@ -57,18 +57,27 @@ data-lakehouse-ops/             # Orchestration, ops, and config
 
 ### 2. Build and Launch
 
-#### a) Build the gov-aggregator app
+#### a) Build a local gov-aggregator image (dev only)
 
 ```bash
 cd ~/<<PATH_TO_PROJECT>>/mvp/data-lakehouse/apps/gov-aggregator
-mvn -DskipTests package
+docker build -f Dockerfile -t mvp-gov-aggregator:local .
 ```
+
+For CI/CD, Jenkins should publish to Harbor and set `GOV_AGGREGATOR_IMAGE` in [data-lakehouse-ops/.env](data-lakehouse-ops/.env).
 
 #### b) Start the full stack
 
 ```bash
 cd ~/<<PATH_TO_PROJECT>>/mvp/data-lakehouse-ops
 docker compose up --build
+```
+
+If `GOV_AGGREGATOR_IMAGE` points to Harbor, prefer:
+
+```bash
+docker compose pull gov-aggregator debezium-to-silver
+docker compose up -d
 ```
 
 This will launch all services: Ozone, Kafka, Hive, Iceberg, Trino, Spark, Superset, Apicurio, Gov Aggregator, and Nginx.

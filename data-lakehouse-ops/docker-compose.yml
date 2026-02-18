@@ -59,11 +59,42 @@ services:
       - ../data-lakehouse/ozone/ozone-site.s3g.xml:/opt/ozone/etc/hadoop/ozone-site.xml:ro
     networks: [dlx]
 
+  ozone-exit-safemode:
+    image: apache/ozone:2.0.0
+    container_name: mvp-ozone-exit-safemode
+    depends_on:
+      - ozone-scm
+      - ozone-om
+      - ozone-dn
+    entrypoint: ["/bin/bash","-lc"]
+    command:
+      - |
+        set -e
+        echo "checking SCM safemode..." >&2
+        for i in $(seq 1 60); do
+          if ozone admin safemode status 2>/dev/null | grep -q "out of safe mode"; then
+            echo "SCM is out of safe mode." >&2
+            exit 0
+          fi
+          ozone admin safemode exit >/dev/null 2>&1 || true
+          sleep 2
+        done
+        echo "timed out waiting for SCM to exit safe mode; continuing" >&2
+        ozone admin safemode status || true
+        exit 0
+    volumes:
+      - ../data-lakehouse/ozone/ozone-site.scm.xml:/opt/ozone/etc/hadoop/ozone-site.xml:ro
+    networks: [dlx]
+    restart: "no"
+
   init-bucket:
     image: amazon/aws-cli:2.17.54
     container_name: mvp-init-bucket
     depends_on:
-      - ozone-s3g
+      ozone-exit-safemode:
+        condition: service_completed_successfully
+      ozone-s3g:
+        condition: service_started
     environment:
       - AWS_ACCESS_KEY_ID=admin
       - AWS_SECRET_ACCESS_KEY=admin123
@@ -86,7 +117,8 @@ services:
     image: apache/kafka:4.1.0
     container_name: mvp-kafka
     ports:
-      - "9092:9092"
+      # Host-facing listener (so host consumers don't need to resolve 'mvp-kafka')
+      - "19092:19092"
     environment:
        # --- KRaft single-node config ---
       KAFKA_NODE_ID: 1
@@ -94,13 +126,14 @@ services:
       KAFKA_CONTROLLER_QUORUM_VOTERS: 1@mvp-kafka:9093
 
       # --- Listeners ---
-      # internal listeners (inside container)
-      KAFKA_LISTENERS: PLAINTEXT://:9092,CONTROLLER://:9093
+      # internal + external listeners
+      KAFKA_LISTENERS: INTERNAL://:9092,EXTERNAL://:19092,CONTROLLER://:9093
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: INTERNAL:PLAINTEXT,EXTERNAL:PLAINTEXT,CONTROLLER:PLAINTEXT
       # what other containers/host use to reach broker
-      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://mvp-kafka:9092
+      KAFKA_ADVERTISED_LISTENERS: INTERNAL://mvp-kafka:9092,EXTERNAL://localhost:19092
       # which listener is used for controller and inter-broker
       KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
-      KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
+      KAFKA_INTER_BROKER_LISTENER_NAME: INTERNAL
 
       # --- Log directory (where KRaft metadata + logs live) ---
       KAFKA_LOG_DIRS: /var/lib/kafka/data
@@ -147,8 +180,11 @@ services:
 
   # ---------------- Kafka Connect (Debezium; JSON) ------------------
   connect:
-    image: debezium/connect:2.7.3.Final
+    build:
+      context: ./connect
+    image: mvp-connect:2.7.3.Final-iceberg
     container_name: mvp-connect
+    user: "0:0"
     depends_on:
       kafka:
         condition: service_healthy
@@ -158,20 +194,32 @@ services:
       - CONFIG_STORAGE_TOPIC=connect_configs
       - OFFSET_STORAGE_TOPIC=connect_offsets
       - STATUS_STORAGE_TOPIC=connect_status
+      - KAFKA_HEAP_OPTS=-Xms512m -Xmx1024m
+      # Iceberg S3FileIO uses AWS SDK v2 which requires an explicit region.
+      - AWS_REGION=us-east-1
+      - AWS_DEFAULT_REGION=us-east-1
+      # Make Apicurio converter/resolver JARs available to connector classloaders.
+      # Debezium's entrypoint will symlink these libs into each plugin directory.
+      - ENABLE_APICURIO_CONVERTERS=true
       # Default converters for the Connect worker. Individual connectors can override.
       # For this MVP we use value-only Avro: keys are schemaless JSON, values are Avro.
       - KEY_CONVERTER=org.apache.kafka.connect.json.JsonConverter
-      - KEY_CONVERTER_SCHEMAS_ENABLE=false
       - VALUE_CONVERTER=io.apicurio.registry.utils.converter.AvroConverter
-      - VALUE_CONVERTER_APICURIO_REGISTRY_URL=http://apicurio:8080/apis/registry/v2
-      - VALUE_CONVERTER_APICURIO_REGISTRY_AUTO_REGISTER=true
-      - VALUE_CONVERTER_APICURIO_REGISTRY_FIND_LATEST=true
+      # Debezium image maps CONNECT_* vars into connect-distributed.properties.
+      - CONNECT_KEY_CONVERTER_SCHEMAS_ENABLE=false
+      - CONNECT_VALUE_CONVERTER_SCHEMAS_ENABLE=false
+      - CONNECT_VALUE_CONVERTER_APICURIO_REGISTRY_URL=http://apicurio:8080/apis/registry/v2
+      - CONNECT_VALUE_CONVERTER_APICURIO_REGISTRY_AUTO_REGISTER=true
+      - CONNECT_VALUE_CONVERTER_APICURIO_REGISTRY_FIND_LATEST=true
+      # Make Avro payloads Confluent-compatible (magic byte + 4-byte schema id)
+      # so Kafka UI can render Avro values as JSON.
+      - CONNECT_VALUE_CONVERTER_APICURIO_REGISTRY_AS_CONFLUENT=true
+      # Match Debezium + Streams SerDe default (see SerdeFactory): contentId + Legacy4ByteIdHandler.
+      - CONNECT_VALUE_CONVERTER_APICURIO_REGISTRY_USE_ID=contentId
+      - CONNECT_VALUE_CONVERTER_APICURIO_REGISTRY_ID_HANDLER=io.apicurio.registry.serde.Legacy4ByteIdHandler
     ports: ["8083:8083"]
     extra_hosts:
       - "host.docker.internal:host-gateway"
-    volumes:
-      # Provide AvroConverter implementation on Connect plugin.path (/kafka/connect)
-      - ../data-lakehouse/apps/gov-aggregator/target/gov-aggregator-0.1.0-SNAPSHOT.jar:/kafka/connect/apicurio-avro-converter/gov-aggregator-0.1.0-SNAPSHOT.jar:ro
     networks: [dlx]
 
   # ---------------- Hive Metastore (Apache; Derby) ------------------
@@ -262,7 +310,7 @@ services:
     ports:
       - "8081:8080"
     healthcheck:
-      test: ["CMD-SHELL","wget -qO- http://localhost:8080/health/ready || exit 1"]
+      test: ["CMD-SHELL","curl -fsS http://localhost:8080/health/ready >/dev/null || exit 1"]
       interval: 10s
       timeout: 3s
       retries: 15
@@ -283,9 +331,9 @@ services:
     networks: [dlx]
 
   superset:
-    build:
-      context: ../data-lakehouse/superset        # uses superset/Dockerfile
-    image: mvp-superset:3.1.0-hive
+    # build:
+    #   context: ../data-lakehouse/superset        # uses superset/Dockerfile
+    image: mvp-superset:4.1.1-extended
     container_name: mvp-superset
     depends_on:
       - superset-db
@@ -310,11 +358,9 @@ services:
     restart: unless-stopped
     networks: [dlx]
 
-  # ---------------- Gov Aggregator (your app) -----------------------
+  # ---------------- Gov Aggregator -----------------------
   gov-aggregator:
-    build:
-      context: ../data-lakehouse/apps/gov-aggregator
-      dockerfile: Dockerfile.runtime
+    image: ${GOV_AGGREGATOR_IMAGE:-mvp-gov-aggregator:local}
     container_name: mvp-gov-aggregator
     depends_on:
       - kafka
@@ -332,11 +378,9 @@ services:
     restart: unless-stopped
     networks: [dlx]
 
-  # ---------------- Bronze (Debezium) -> Silver (JSON) --------------
+  # ---------------- Bronze (Debezium) -> Silver (Avro) --------------
   debezium-to-silver:
-    build:
-      context: ../data-lakehouse/apps/gov-aggregator
-      dockerfile: Dockerfile.runtime
+    image: ${GOV_AGGREGATOR_IMAGE:-mvp-gov-aggregator:local}
     container_name: mvp-debezium-to-silver
     depends_on:
       - kafka
@@ -345,23 +389,28 @@ services:
     environment:
       MAIN_CLASS: et.gov.lakehouse.govaggregator.core.DebeziumToSilverApp
       BOOTSTRAP_SERVERS: kafka:9092
-      # Bump app id to reprocess and populate the canonical silver.<table> topics.
-      APPLICATION_ID: debezium-to-silver-v2
+      # Bump app id to reprocess and populate the canonical silver topics.
+      APPLICATION_ID: debezium-to-silver-oracle-esw-v2
 
       # Apicurio Registry (Avro)
       APICURIO_URL: http://apicurio:8080/apis/registry/v2
-      APICURIO_GROUP_ID: pg1
+      BRONZE_APICURIO_GROUP_ID: oracle-esw
+      SILVER_APICURIO_GROUP_ID: oracle-esw-silver
 
-      # Debezium topics produced by your connector (topic.prefix=pg1)
-      BRONZE_TOPICS: pg1.nbe_mock.accounts,pg1.nbe_mock.transactions,pg1.nbe_mock.customers,pg1.nbe_mock.branches,pg1.nbe_mock.banks
+      # Debezium topics routed by RegexRouter: oracle_esw.ESW.<TABLE> -> raw-<TABLE>
+      BRONZE_TOPICS: raw-TB_CB_LPCO,raw-TB_CB_LPCO_AMDT_ATTCH_DOC,raw-TB_CB_LPCO_ATTCH_DOC,raw-TB_CB_LPCO_CMDT,raw-TB_CB_LPCO_CMNT,raw-TB_CB_LPCO_CNCL_ATTCH_DOC,raw-TB_CB_LPCO_CSTMS,raw-TB_CB_LPCO_MPNG
 
-      # Output topic naming: silver.<input-topic> by default
-      SILVER_TOPIC_PREFIX: silver.
-      # Naming style:
-      # - full (default): silver.<input-topic> (optionally with SILVER_STRIP_PREFIX)
-      # - last-segment: silver.<table> (e.g. pg1.nbe_mock.accounts -> silver.accounts)
-      SILVER_NAME_STYLE: last-segment
-      SILVER_STRIP_PREFIX: ""
+      # Output topic naming: silver.oracle_esw.<TABLE>
+      SILVER_TOPIC_PREFIX: silver.oracle_esw.
+      SILVER_NAME_STYLE: full
+      SILVER_STRIP_PREFIX: raw-
+      SILVER_RECORD_NAMESPACE: silver.oracle_esw
+
+      # Iceberg dynamic routing field uses this namespace.
+      ICEBERG_NAMESPACE: silver
+
+      # Keep false until you explicitly approve the mapping in connectors/silver-oracle-esw.approval.md
+      SILVER_APPROVED: "true"
     restart: unless-stopped
     networks: [dlx]
 
@@ -377,11 +426,15 @@ services:
       - SPARK_MODE=client
       - KAFKA_BOOTSTRAP_SERVERS=kafka:9092
       # Only consume the canonical silver topics (exclude legacy silver.nbe_mock.*)
-      - TOPIC_PATTERN=silver\.(accounts|banks|branches|customers|transactions)
+      - TOPIC_PATTERN=silver\.(accounts|banks|branches|customers|transactions|oracle_esw\..*)
       - ICEBERG_REST_URI=http://iceberg-rest:8181
       - WAREHOUSE_SILVER_LOCATION=s3://warehouse/silver/
-      - CHECKPOINT_LOCATION=/tmp/checkpoints/kafka_silver_to_iceberg_v2
+      # Change checkpoint path to force a one-time backfill from earliest offsets.
+      - CHECKPOINT_LOCATION=/tmp/checkpoints/kafka_silver_to_iceberg_backfill_v1
       - STARTING_OFFSETS=earliest
+      # Pre-create tables so they show up in Trino/Superset even if early micro-batches are empty.
+      # NOTE: kafka_silver_to_iceberg.py flattens topic suffixes by replacing '.' with '_'.
+      - EXPECTED_TABLES=accounts,banks,branches,customers,transactions,oracle_esw_tb_cb_lpco_cmnt,oracle_esw_tb_cb_lpco_cstms,oracle_esw_tb_cb_lpco_attch_doc,oracle_esw_tb_cb_lpco_amdt_attch_doc,oracle_esw_tb_cb_lpco_mpng,oracle_esw_tb_cb_lpco_cncl_attch_doc,oracle_esw_tb_cb_lpco
       - S3_ENDPOINT=http://ozone-s3g:9878
       - S3_PATH_STYLE_ACCESS=true
       - AWS_ACCESS_KEY_ID=admin

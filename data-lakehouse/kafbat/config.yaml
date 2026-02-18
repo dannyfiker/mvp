@@ -2,6 +2,20 @@ kafka:
   clusters:
     - name: local
       bootstrapServers: kafka:9092
+      # Enable Avro deserialization in Kafka UI by pointing it at Apicurio's
+      # Confluent-compatible Schema Registry API.
+      schemaRegistry: http://apicurio:8080/apis/ccompat/v7/
+      allowDeleteTopics: true
+      readOnly: false
+      kafkaConnect:
+        - name: connect
+          address: http://connect:8083
+
+    # Same Kafka cluster, but with Schema Registry scoped to the oracle-esw group.
+    # Use this cluster in the UI when browsing the raw-* Oracle CDC topics.
+    - name: oracle-esw
+      bootstrapServers: kafka:9092
+      schemaRegistry: http://nginx/schema-registry/oracle-esw/
       allowDeleteTopics: true
       readOnly: false
       kafkaConnect:

@@ -3,7 +3,7 @@ services:
     image: quay.io/apicurio/apicurio-registry-kafkasql:2.5.10.Final
     container_name: mvp-apicurio
     healthcheck:
-      test: ["CMD-SHELL","wget -qO- http://localhost:8080/health/ready || exit 1"]
+      test: ["CMD-SHELL","curl -fsS http://localhost:8080/health/ready >/dev/null || exit 1"]
       interval: 10s
       timeout: 3s
       retries: 10
@@ -30,7 +30,8 @@ services:
     restart: unless-stopped
 
   superset:
-    image: apache/superset:3.1.0
+    # build:
+    #   context: ../data-lakehouse/superset
     container_name: mvp-superset
     depends_on:
       - superset-db
@@ -50,9 +51,7 @@ services:
     restart: unless-stopped
 
   gov-aggregator:
-    build:
-      context: ../data-lakehouse/apps/gov-aggregator
-      dockerfile: Dockerfile.runtime
+    image: ${GOV_AGGREGATOR_IMAGE:-mvp-gov-aggregator:local}
     container_name: mvp-gov-aggregator
     depends_on:
       - kafka
@@ -68,6 +67,12 @@ services:
       TOPIC_MOE: moe.education.stats
       TOPIC_OUT: gov.aggregates.enriched
     restart: unless-stopped
+
+  connect:
+    volumes:
+      # Ensure we have a clean log4j config (previous rootLogger override persisted
+      # via Docker volumes and hid the real Oracle error).
+      - ./connect-log4j.properties:/kafka/config/log4j.properties
 
 volumes:
   superset_db:

@@ -1,0 +1,53 @@
+{
+  "name": "iceberg-sink-oracle-esw-silver",
+  "config": {
+    "connector.class": "io.tabular.iceberg.connect.IcebergSinkConnector",
+    "tasks.max": "1",
+
+    "key.converter": "org.apache.kafka.connect.converters.ByteArrayConverter",
+    "value.converter": "io.apicurio.registry.utils.converter.AvroConverter",
+    "value.converter.schemas.enable": "false",
+    "value.converter.apicurio.registry.url": "http://apicurio:8080/apis/registry/v2",
+    "value.converter.apicurio.registry.find-latest": "true",
+    "value.converter.apicurio.registry.auto-register": "false",
+    "value.converter.apicurio.registry.headers.enabled": "false",
+    "value.converter.apicurio.registry.as-confluent": "true",
+    "value.converter.apicurio.registry.use-id": "contentId",
+    "value.converter.apicurio.registry.id-handler": "io.apicurio.registry.serde.Legacy4ByteIdHandler",
+
+    "topics.regex": "silver\\.oracle_esw\\..+",
+
+    "consumer.override.auto.offset.reset": "earliest",
+
+    "iceberg.tables": "silver.tb_cb_lpco,silver.tb_cb_lpco_amdt_attch_doc,silver.tb_cb_lpco_attch_doc,silver.tb_cb_lpco_cmdt,silver.tb_cb_lpco_cmnt,silver.tb_cb_lpco_cncl_attch_doc,silver.tb_cb_lpco_cstms,silver.tb_cb_lpco_mpng",
+    "iceberg.tables.route-field": "__iceberg_table",
+
+    "iceberg.table.silver.tb_cb_lpco.route-regex": "^silver\\.tb_cb_lpco$",
+    "iceberg.table.silver.tb_cb_lpco_amdt_attch_doc.route-regex": "^silver\\.tb_cb_lpco_amdt_attch_doc$",
+    "iceberg.table.silver.tb_cb_lpco_attch_doc.route-regex": "^silver\\.tb_cb_lpco_attch_doc$",
+    "iceberg.table.silver.tb_cb_lpco_cmdt.route-regex": "^silver\\.tb_cb_lpco_cmdt$",
+    "iceberg.table.silver.tb_cb_lpco_cmnt.route-regex": "^silver\\.tb_cb_lpco_cmnt$",
+    "iceberg.table.silver.tb_cb_lpco_cncl_attch_doc.route-regex": "^silver\\.tb_cb_lpco_cncl_attch_doc$",
+    "iceberg.table.silver.tb_cb_lpco_cstms.route-regex": "^silver\\.tb_cb_lpco_cstms$",
+    "iceberg.table.silver.tb_cb_lpco_mpng.route-regex": "^silver\\.tb_cb_lpco_mpng$",
+
+    "iceberg.tables.auto-create-enabled": "true",
+    "iceberg.tables.evolve-schema-enabled": "true",
+    "iceberg.tables.schema-case-insensitive": "true",
+
+    "iceberg.control.topic": "control-iceberg",
+    "iceberg.control.commit.interval-ms": "60000",
+
+    "iceberg.catalog": "iceberg",
+    "iceberg.catalog.type": "rest",
+    "iceberg.catalog.uri": "http://iceberg-rest:8181",
+    "iceberg.catalog.warehouse": "s3://warehouse/",
+
+    "iceberg.catalog.io-impl": "org.apache.iceberg.aws.s3.S3FileIO",
+    "iceberg.catalog.s3.endpoint": "http://ozone-s3g:9878",
+    "iceberg.catalog.s3.path-style-access": "true",
+    "iceberg.catalog.s3.access-key-id": "admin",
+    "iceberg.catalog.s3.secret-access-key": "admin123",
+    "iceberg.catalog.s3.region": "us-east-1"
+  }
+}

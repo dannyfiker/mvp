@@ -1,0 +1,2 @@
+{"error_code":400,"message":"Connector configuration is invalid and contains the following 1 error(s):\nUnable to connect: Failed to resolve Oracle database version: 'Oracle Database 23c Free Release - Debezium banner'\nYou can also find the above list of errors at the endpoint `/connector-plugins/{connectorType}/config/validate`"}
+HTTP 400

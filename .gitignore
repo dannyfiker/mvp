@@ -48,3 +48,4 @@ htmlcov/
 
 # Lake specific (if using LakeFS or similar)
 .lakefs/
+*.jar

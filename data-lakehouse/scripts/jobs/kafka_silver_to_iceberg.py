@@ -1,4 +1,6 @@
 import os
+import re
+import time
 from pyspark.sql import SparkSession
 from pyspark.sql.functions import col, current_timestamp, expr
 
@@ -38,13 +40,30 @@ spark = (
     .getOrCreate()
 )
 
-spark.sql(
+def spark_sql_with_retry(sql: str, *, retries: int = 12, initial_sleep_s: float = 1.0, max_sleep_s: float = 20.0) -> None:
+    sleep_s = initial_sleep_s
+    last_error: Exception | None = None
+
+    for attempt in range(1, retries + 1):
+        try:
+            spark.sql(sql)
+            return
+        except Exception as exc:  # noqa: BLE001
+            last_error = exc
+            print(f"spark.sql failed (attempt {attempt}/{retries}); sleeping {sleep_s:.1f}s; sql={sql!r}; err={exc}")
+            time.sleep(sleep_s)
+            sleep_s = min(max_sleep_s, sleep_s * 1.5)
+
+    raise RuntimeError(f"spark.sql failed after {retries} attempts: {sql!r}") from last_error
+
+
+spark_sql_with_retry(
     f"CREATE DATABASE IF NOT EXISTS iceberg.silver LOCATION '{WAREHOUSE_SILVER_LOCATION}'"
 )
 
 
 def ensure_table_exists(table: str) -> None:
-    spark.sql(
+    spark_sql_with_retry(
         f"""
 CREATE TABLE IF NOT EXISTS {table} (
   kafka_topic STRING,
@@ -68,15 +87,17 @@ def topic_to_table(topic: str) -> str:
     else:
         suffix = topic
 
-    # Spark SQL identifiers: keep it simple; quote each part.
-    return f"iceberg.silver.`{suffix}`"
+    # Spark allows almost any identifier inside backticks, but Trino/Superset
+    # tooling does not like dots inside table names. Flatten to a safe name.
+    safe_suffix = re.sub(r"[^A-Za-z0-9_]+", "_", suffix.replace(".", "_")).lower()
+    return f"iceberg.silver.`{safe_suffix}`"
 
 
 def ensure_expected_tables_exist() -> None:
     # Create the canonical tables up-front so they show up in Iceberg/Trino
     # even if early micro-batches are empty.
     for suffix in EXPECTED_TABLES:
-        ensure_table_exists(f"iceberg.silver.`{suffix}`")
+        ensure_table_exists(f"iceberg.silver.`{suffix.lower()}`")
 
 
 ensure_expected_tables_exist()
