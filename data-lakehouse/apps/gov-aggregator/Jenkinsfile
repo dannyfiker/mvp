@@ -27,7 +27,18 @@ pipeline {
       steps {
         sh '''
           set -euo pipefail
-          test -S /var/run/docker.sock
+          if ! command -v docker >/dev/null 2>&1; then
+            echo "ERROR: docker CLI not found inside Jenkins runtime."
+            echo "Install docker CLI in Jenkins image or mount it into the container."
+            exit 1
+          fi
+
+          if [ ! -S /var/run/docker.sock ]; then
+            echo "ERROR: /var/run/docker.sock is not mounted into Jenkins."
+            echo "Mount Docker socket for same-host build/deploy."
+            exit 1
+          fi
+
           docker version
           docker compose version
         '''
@@ -109,7 +120,7 @@ pipeline {
 
   post {
     always {
-      sh 'docker image prune -f || true'
+      sh 'if command -v docker >/dev/null 2>&1; then docker image prune -f || true; fi'
     }
   }
 }
