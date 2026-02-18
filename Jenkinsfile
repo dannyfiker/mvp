@@ -118,9 +118,4 @@ pipeline {
     }
   }
 
-  post {
-    always {
-      sh 'if command -v docker >/dev/null 2>&1; then docker image prune -f || true; fi'
-    }
-  }
 }
